@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Clock, MapPin, ShieldCheck, Plus, CheckCircle2, X } from 'lucide-react';
+import { Clock, MapPin, ShieldCheck, Plus, CheckCircle2, X, MessageSquare, Phone, User } from 'lucide-react';
 
 const CLUBS = [
   { id: 'all', name: 'All Clubs', price: null, area: 'Greater Boston' },
@@ -27,14 +27,13 @@ const INITIAL_MATCHES = [
     time: '10:00 AM – 11:30 AM',
     date: 'Tuesday, Sep 1',
     tier: 'Low Intermediate',
-    ratingRange: '2.3 – 2.6 NPRP',
     price: 22.00,
     spotsFilled: 3,
     totalSpots: 4,
     players: [
-      { name: 'Alex M.', avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop&crop=faces' },
-      { name: 'David K.', avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop&crop=faces' },
-      { name: 'Sofia R.', avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop&crop=faces' }
+      { name: 'Alex M.', phone: '+1 617-555-0192', avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop&crop=faces' },
+      { name: 'David K.', phone: '+1 617-555-0144', avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop&crop=faces' },
+      { name: 'Sofia R.', phone: '+1 857-555-0188', avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop&crop=faces' }
     ]
   },
   {
@@ -45,13 +44,12 @@ const INITIAL_MATCHES = [
     time: '11:30 AM – 1:00 PM',
     date: 'Tuesday, Sep 1',
     tier: 'Intermediate',
-    ratingRange: '2.6 – 3.1 NPRP',
     price: 22.50,
     spotsFilled: 2,
     totalSpots: 4,
     players: [
-      { name: 'Lucas T.', avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&h=100&fit=crop&crop=faces' },
-      { name: 'Emma W.', avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&h=100&fit=crop&crop=faces' }
+      { name: 'Lucas T.', phone: '+1 617-555-0111', avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&h=100&fit=crop&crop=faces' },
+      { name: 'Emma W.', phone: '+1 617-555-0122', avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&h=100&fit=crop&crop=faces' }
     ]
   }
 ];
@@ -68,12 +66,16 @@ export default function App() {
   const [matches, setMatches] = useState(INITIAL_MATCHES);
   const [selectedClub, setSelectedClub] = useState('all');
   const [selectedMatch, setSelectedMatch] = useState(null);
-  const [joinedMatches, setJoinedMatches] = useState([]);
+  const [confirmedMatch, setConfirmedMatch] = useState(null);
   const [activeTab, setActiveTab] = useState('feed');
   const [selectedSlots, setSelectedSlots] = useState(['Mon 10:00 AM – 1:00 PM']);
   const [savedStatus, setSavedStatus] = useState(false);
   
-  // Modal de Crear Partido
+  // Perfil del Jugador
+  const [playerName, setPlayerName] = useState('Luis F.');
+  const [playerPhone, setPlayerPhone] = useState('+1 617 000 0000');
+
+  // Modal Host
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newClubId, setNewClubId] = useState('padelhub');
   const [newDate, setNewDate] = useState('Thursday, Sep 3');
@@ -104,38 +106,46 @@ export default function App() {
       time: newTime,
       date: newDate,
       tier: newTier,
-      ratingRange: TIERS.find(t => t.label === newTier)?.range + ' NPRP',
       price: club.price,
       spotsFilled: 1,
       totalSpots: 4,
       players: [
-        { name: 'You (Host)', avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&h=100&fit=crop&crop=faces' }
+        { name: playerName, phone: playerPhone, avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&h=100&fit=crop&crop=faces' }
       ]
     };
 
     setMatches([newMatchObj, ...matches]);
-    setJoinedMatches([...joinedMatches, newMatchObj.id]);
     setShowCreateModal(false);
+  };
+
+  const handleConfirmJoin = (e) => {
+    e.preventDefault();
+    const updated = matches.map(m => {
+      if (m.id === selectedMatch.id) {
+        const updatedPlayers = [
+          ...m.players,
+          { name: playerName, phone: playerPhone, avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&h=100&fit=crop&crop=faces' }
+        ];
+        const newObj = {
+          ...m,
+          spotsFilled: m.spotsFilled + 1,
+          players: updatedPlayers
+        };
+        if (newObj.spotsFilled === 4) {
+          setConfirmedMatch(newObj);
+        }
+        return newObj;
+      }
+      return m;
+    });
+
+    setMatches(updated);
+    setSelectedMatch(null);
   };
 
   const filteredMatches = matches.filter(m => 
     selectedClub === 'all' || m.clubId === selectedClub
   );
-
-  const handleJoin = (matchId) => {
-    setMatches(matches.map(m => {
-      if (m.id === matchId && m.spotsFilled < m.totalSpots) {
-        return {
-          ...m,
-          spotsFilled: m.spotsFilled + 1,
-          players: [...m.players, { name: 'You', avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&h=100&fit=crop&crop=faces' }]
-        };
-      }
-      return m;
-    }));
-    setJoinedMatches([...joinedMatches, matchId]);
-    setSelectedMatch(null);
-  };
 
   return (
     <div className="max-w-md mx-auto min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans border-x border-slate-900 shadow-2xl relative pb-16">
@@ -145,10 +155,10 @@ export default function App() {
           <h1 className="text-lg font-black tracking-tight text-emerald-400">BOSTON PADEL</h1>
           <p className="text-[11px] text-slate-400 font-medium">Multi-Club Autonomous Matchmaking</p>
         </div>
-        <div className="text-right">
-          <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-            NPRP 2.55
-          </span>
+        <div className="text-right flex items-center gap-1.5 bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-full">
+          <User size={12} className="text-emerald-400" />
+          <span className="text-[11px] font-bold text-slate-200">{playerName}</span>
+          <span className="text-[10px] text-emerald-400 font-bold bg-emerald-500/10 px-1.5 py-0.5 rounded">2.55</span>
         </div>
       </header>
 
@@ -170,7 +180,6 @@ export default function App() {
 
       {activeTab === 'feed' ? (
         <main className="flex-1 p-4 space-y-4">
-          {/* Action Row */}
           <div className="flex justify-between items-center">
             <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none flex-1 mr-2">
               {CLUBS.map(club => (
@@ -205,7 +214,8 @@ export default function App() {
 
           <div className="space-y-3">
             {filteredMatches.map(match => {
-              const isJoined = joinedMatches.includes(match.id);
+              const hasJoined = match.players.some(p => p.name === playerName);
+              const isFull = match.spotsFilled >= match.totalSpots;
               const tierConfig = TIERS.find(t => t.label === match.tier) || TIERS[3];
 
               return (
@@ -233,7 +243,7 @@ export default function App() {
                     <div className="flex items-center gap-2">
                       <div className="flex -space-x-1.5">
                         {match.players.map((p, i) => (
-                          <img key={i} src={p.avatar} alt={p.name} className="w-7 h-7 rounded-full border-2 border-slate-900 object-cover" />
+                          <img key={i} src={p.avatar} alt={p.name} title={p.name} className="w-7 h-7 rounded-full border-2 border-slate-900 object-cover" />
                         ))}
                         {Array.from({ length: match.totalSpots - match.spotsFilled }).map((_, i) => (
                           <div key={i} className="w-7 h-7 rounded-full border-2 border-dashed border-slate-700 bg-slate-800/40 flex items-center justify-center text-slate-500">
@@ -248,21 +258,21 @@ export default function App() {
 
                     <button
                       onClick={() => setSelectedMatch(match)}
-                      disabled={isJoined || match.spotsFilled === match.totalSpots}
+                      disabled={hasJoined || isFull}
                       className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
-                        isJoined 
+                        hasJoined 
                           ? 'bg-slate-800 text-emerald-400 border border-emerald-500/30' 
-                          : match.spotsFilled === match.totalSpots
+                          : isFull
                           ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
                           : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-md shadow-emerald-500/10'
                       }`}
                     >
-                      {isJoined ? (
+                      {hasJoined ? (
                         <>
-                          <CheckCircle2 size={13} /> Confirmed
+                          <CheckCircle2 size={13} /> You're In
                         </>
-                      ) : match.spotsFilled === match.totalSpots ? (
-                        'Full'
+                      ) : isFull ? (
+                        'Match Full'
                       ) : (
                         `Join • $${match.price.toFixed(2)}`
                       )}
@@ -276,6 +286,30 @@ export default function App() {
       ) : (
         /* Schedule Tab */
         <main className="flex-1 p-4 space-y-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
+            <h2 className="text-sm font-bold text-white">Your Player Identity</h2>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div>
+                <label className="text-slate-400 block mb-1">Your Name</label>
+                <input 
+                  type="text" 
+                  value={playerName} 
+                  onChange={(e) => setPlayerName(e.target.value)} 
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-200" 
+                />
+              </div>
+              <div>
+                <label className="text-slate-400 block mb-1">WhatsApp / Phone</label>
+                <input 
+                  type="text" 
+                  value={playerPhone} 
+                  onChange={(e) => setPlayerPhone(e.target.value)} 
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-200" 
+                />
+              </div>
+            </div>
+          </div>
+
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
             <h2 className="text-sm font-bold text-white">Select Preferred Clubs</h2>
             <div className="space-y-2">
@@ -325,7 +359,7 @@ export default function App() {
             >
               {savedStatus ? (
                 <>
-                  <CheckCircle2 size={16} /> Saved Successfully!
+                  <CheckCircle2 size={16} /> Preferences Saved!
                 </>
               ) : (
                 'Save Weekly Preferences'
@@ -335,7 +369,106 @@ export default function App() {
         </main>
       )}
 
-      {/* Modal: Crear Partido (Host) */}
+      {/* Modal: Join Match & Confirm Phone */}
+      {selectedMatch && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-sm p-5 space-y-4">
+            <h3 className="text-base font-bold text-white">Join Match • {selectedMatch.clubName}</h3>
+            
+            <div className="bg-slate-950 rounded-xl p-3 border border-slate-800 space-y-2 text-xs">
+              <div className="flex justify-between text-slate-400">
+                <span>Session:</span>
+                <span className="text-slate-200 font-medium">{selectedMatch.date} • {selectedMatch.time}</span>
+              </div>
+              <div className="flex justify-between text-slate-400">
+                <span>Split Amount:</span>
+                <span className="text-emerald-400 font-black text-sm">${selectedMatch.price.toFixed(2)}</span>
+              </div>
+            </div>
+
+            <form onSubmit={handleConfirmJoin} className="space-y-3 text-xs">
+              <div>
+                <label className="block text-slate-400 mb-1 font-medium">Your Name</label>
+                <input 
+                  type="text" 
+                  value={playerName} 
+                  onChange={(e) => setPlayerName(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-200" 
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1 font-medium">WhatsApp / Cell for Match Group</label>
+                <input 
+                  type="text" 
+                  value={playerPhone} 
+                  onChange={(e) => setPlayerPhone(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-200" 
+                  required
+                />
+              </div>
+
+              <div className="flex items-start gap-2 text-[11px] text-slate-400 bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-2.5">
+                <ShieldCheck size={16} className="text-emerald-400 flex-shrink-0 mt-0.5" />
+                <span>Pre-authorization only. Billed when match hits 4/4 players.</span>
+              </div>
+
+              <div className="flex gap-2 pt-1">
+                <button 
+                  type="button"
+                  onClick={() => setSelectedMatch(null)}
+                  className="flex-1 py-2.5 bg-slate-800 text-slate-300 font-semibold text-xs rounded-xl hover:bg-slate-700"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit"
+                  className="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-xl transition"
+                >
+                  Confirm & Pre-Auth
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Match Complete Celebration (4/4 Players) */}
+      {confirmedMatch && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-emerald-500/40 rounded-2xl w-full max-w-sm p-5 space-y-4 shadow-2xl">
+            <div className="text-center space-y-1">
+              <div className="w-12 h-12 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 flex items-center justify-center mx-auto mb-2">
+                <CheckCircle2 size={28} />
+              </div>
+              <h3 className="text-lg font-black text-white">MATCH CONFIRMED (4/4)</h3>
+              <p className="text-xs text-slate-400">{confirmedMatch.clubName} • {confirmedMatch.time}</p>
+            </div>
+
+            <div className="bg-slate-950 rounded-xl p-3 border border-slate-800 space-y-2 text-xs">
+              <p className="font-bold text-slate-300 mb-1">Confirmed Lineup:</p>
+              {confirmedMatch.players.map((p, i) => (
+                <div key={i} className="flex justify-between items-center py-1 border-b border-slate-900 last:border-0">
+                  <span className="font-medium text-slate-200">{p.name}</span>
+                  <span className="text-[11px] text-slate-400 flex items-center gap-1">
+                    <Phone size={10} /> {p.phone}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <button 
+              onClick={() => setConfirmedMatch(null)}
+              className="w-full py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-xl transition shadow-lg shadow-emerald-500/20"
+            >
+              Done & Open Match Group
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Host Match */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-4 z-50">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-sm p-5 space-y-4">
@@ -400,52 +533,6 @@ export default function App() {
                 Publish Match (You are Host)
               </button>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* Modal: Pre-Auth Apple Pay */}
-      {selectedMatch && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-4 z-50">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-sm p-5 space-y-4">
-            <h3 className="text-base font-bold text-white">Authorize Match Entry</h3>
-            
-            <div className="bg-slate-950 rounded-xl p-3 border border-slate-800 space-y-2 text-xs">
-              <div className="flex justify-between text-slate-400">
-                <span>Club:</span>
-                <span className="text-emerald-400 font-bold">{selectedMatch.clubName}</span>
-              </div>
-              <div className="flex justify-between text-slate-400">
-                <span>Session:</span>
-                <span className="text-slate-200 font-medium">{selectedMatch.date} • {selectedMatch.time}</span>
-              </div>
-              <div className="flex justify-between text-slate-400">
-                <span>Your Individual Split:</span>
-                <span className="text-emerald-400 font-black text-sm">${selectedMatch.price.toFixed(2)}</span>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-2 text-[11px] text-slate-400 bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3">
-              <ShieldCheck size={16} className="text-emerald-400 flex-shrink-0 mt-0.5" />
-              <span>
-                <strong>Pre-authorization hold only.</strong> You are charged only if all 4 spots fill.
-              </span>
-            </div>
-
-            <div className="flex gap-2 pt-1">
-              <button 
-                onClick={() => setSelectedMatch(null)}
-                className="flex-1 py-2.5 bg-slate-800 text-slate-300 font-semibold text-xs rounded-xl hover:bg-slate-700"
-              >
-                Cancel
-              </button>
-              <button 
-                onClick={() => handleJoin(selectedMatch.id)}
-                className="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-xl transition"
-              >
-                Pay with Apple Pay
-              </button>
-            </div>
           </div>
         </div>
       )}
