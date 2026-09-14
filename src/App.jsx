@@ -68,6 +68,7 @@ function tierClass(label) {
 
 function AuthScreen({ onMagicLinkSent }) {
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -77,12 +78,9 @@ function AuthScreen({ onMagicLinkSent }) {
     setLoading(true);
     setErrorMsg('');
 
-    const { error } = await supabase.auth.signInWithOtp({
+    const { error } = await supabase.auth.signInWithPassword({
       email: email.trim(),
-      options: {
-        emailRedirectTo: window.location.origin,
-        shouldCreateUser: true,
-      },
+      password,
     });
 
     setLoading(false);
@@ -92,7 +90,7 @@ function AuthScreen({ onMagicLinkSent }) {
       return;
     }
 
-    setSent(true);
+    setSent(false);
     onMagicLinkSent?.();
   };
 
@@ -109,7 +107,7 @@ function AuthScreen({ onMagicLinkSent }) {
             <div className="mb-5">
               <h2 className="text-lg font-bold text-white">Sign in to play</h2>
               <p className="text-xs text-slate-400 mt-1">
-                Enter your email. We’ll send you a secure sign-in link.
+                Temporary test login: enter the email and password for your Supabase test user.
               </p>
             </div>
 
@@ -129,6 +127,18 @@ function AuthScreen({ onMagicLinkSent }) {
                 </div>
               </div>
 
+              <div>
+                <label className="block text-xs text-slate-400 mb-1.5 font-medium">Password</label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Test password"
+                  required
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2.5 px-3 text-sm text-slate-100 outline-none focus:border-emerald-500"
+                />
+              </div>
+
               {errorMsg && (
                 <div className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-xl p-3">
                   {errorMsg}
@@ -140,13 +150,13 @@ function AuthScreen({ onMagicLinkSent }) {
                 disabled={loading}
                 className="w-full py-3 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 font-black rounded-xl text-sm"
               >
-                {loading ? 'Sending…' : 'Send Sign-In Link'}
+                {loading ? 'Signing in…' : 'Sign In'}
               </button>
             </form>
 
             <div className="mt-4 flex items-start gap-2 text-[11px] text-slate-500">
               <ShieldCheck size={15} className="text-emerald-400 flex-shrink-0 mt-0.5" />
-              <span>Your WhatsApp number will be added to your player profile after sign-in.</span>
+              <span>Temporary test mode: email + password. WhatsApp is still collected in your player profile.</span>
             </div>
           </>
         ) : (
@@ -174,20 +184,82 @@ function AuthScreen({ onMagicLinkSent }) {
 function ProfileSetup({ session, onCreated }) {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
-  const [rating, setRating] = useState('2.50');
+  const [ratingPath, setRatingPath] = useState('playtomic');
+  const [playtomicRating, setPlaytomicRating] = useState('');
+  const [playtomicProfile, setPlaytomicProfile] = useState('');
+
+  const [monthsPlaying, setMonthsPlaying] = useState('0-3');
+  const [weeklyFrequency, setWeeklyFrequency] = useState('1');
+  const [racketBackground, setRacketBackground] = useState('none');
+  const [competitionExperience, setCompetitionExperience] = useState('none');
+
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+
+  const calculateProvisionalRating = () => {
+    const monthsScore = {
+      '0-3': 0,
+      '4-12': 0.25,
+      '13-24': 0.45,
+      '25+': 0.65,
+    }[monthsPlaying] ?? 0;
+
+    const frequencyScore = {
+      '1': 0,
+      '2': 0.15,
+      '3+': 0.3,
+    }[weeklyFrequency] ?? 0;
+
+    const racketScore = {
+      none: 0,
+      casual: 0.15,
+      competitive: 0.4,
+    }[racketBackground] ?? 0;
+
+    const competitionScore = {
+      none: 0,
+      local: 0.2,
+      league: 0.4,
+    }[competitionExperience] ?? 0;
+
+    const raw = 1.5 + monthsScore + frequencyScore + racketScore + competitionScore;
+    return Math.min(3.5, Math.max(1.5, Number(raw.toFixed(2))));
+  };
 
   const handleCreate = async (e) => {
     e.preventDefault();
     setSaving(true);
     setErrorMsg('');
 
-    const parsedRating = Number(rating);
-    if (!Number.isFinite(parsedRating) || parsedRating < 0 || parsedRating > 7) {
-      setSaving(false);
-      setErrorMsg('Please enter a valid padel rating.');
-      return;
+    let rating = null;
+    let ratingSource = 'assessment';
+    let ratingStatus = 'provisional';
+    let externalRating = null;
+    let ratingConfidence = 0.25;
+    let assessment = null;
+
+    if (ratingPath === 'playtomic') {
+      const parsed = Number(playtomicRating);
+
+      if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 7) {
+        setSaving(false);
+        setErrorMsg('Enter a valid Playtomic rating.');
+        return;
+      }
+
+      rating = parsed;
+      ratingSource = 'playtomic';
+      ratingStatus = 'pending_verification';
+      externalRating = parsed;
+      ratingConfidence = 0.6;
+    } else {
+      rating = calculateProvisionalRating();
+      assessment = {
+        months_playing: monthsPlaying,
+        weekly_frequency: weeklyFrequency,
+        racket_background: racketBackground,
+        competition_experience: competitionExperience,
+      };
     }
 
     const { data, error } = await supabase
@@ -196,7 +268,15 @@ function ProfileSetup({ session, onCreated }) {
         user_id: session.user.id,
         name: name.trim(),
         phone: phone.trim(),
-        rating: parsedRating,
+        rating,
+        rating_baseline: rating,
+        rating_source: ratingSource,
+        rating_status: ratingStatus,
+        external_rating: externalRating,
+        playtomic_profile: ratingPath === 'playtomic' ? playtomicProfile.trim() || null : null,
+        rating_confidence: ratingConfidence,
+        calibration_matches: 0,
+        assessment,
       })
       .select()
       .single();
@@ -211,13 +291,17 @@ function ProfileSetup({ session, onCreated }) {
     onCreated(data);
   };
 
+  const provisionalPreview = calculateProvisionalRating();
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-5">
-      <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-3xl p-6">
+      <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-6">
         <div className="mb-6">
           <p className="text-emerald-400 text-xs font-black tracking-wide">BOSTON PADEL</p>
           <h1 className="text-xl font-black text-white mt-1">Create your player profile</h1>
-          <p className="text-xs text-slate-400 mt-1">This is what other players will see when you join a match.</p>
+          <p className="text-xs text-slate-400 mt-1">
+            Ratings start verified from an external source or provisional until Boston Padel calibrates them.
+          </p>
         </div>
 
         <form onSubmit={handleCreate} className="space-y-4">
@@ -247,19 +331,133 @@ function ProfileSetup({ session, onCreated }) {
           </div>
 
           <div>
-            <label className="block text-xs text-slate-400 mb-1.5">Current padel rating</label>
-            <input
-              type="number"
-              min="0"
-              max="7"
-              step="0.01"
-              value={rating}
-              onChange={(e) => setRating(e.target.value)}
-              required
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm outline-none focus:border-emerald-500"
-            />
-            <p className="text-[11px] text-slate-500 mt-1">You can start with your best estimate. We’ll improve rating accuracy later.</p>
+            <label className="block text-xs text-slate-400 mb-2">How should we establish your starting level?</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setRatingPath('playtomic')}
+                className={`p-3 rounded-xl border text-left ${
+                  ratingPath === 'playtomic'
+                    ? 'bg-emerald-500/10 border-emerald-500/40'
+                    : 'bg-slate-950 border-slate-800'
+                }`}
+              >
+                <p className="text-xs font-black text-slate-100">I have Playtomic</p>
+                <p className="text-[10px] text-slate-500 mt-1">Use an external rating for verification.</p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setRatingPath('assessment')}
+                className={`p-3 rounded-xl border text-left ${
+                  ratingPath === 'assessment'
+                    ? 'bg-emerald-500/10 border-emerald-500/40'
+                    : 'bg-slate-950 border-slate-800'
+                }`}
+              >
+                <p className="text-xs font-black text-slate-100">No verified rating</p>
+                <p className="text-[10px] text-slate-500 mt-1">Start provisional and calibrate through matches.</p>
+              </button>
+            </div>
           </div>
+
+          {ratingPath === 'playtomic' ? (
+            <div className="space-y-3 bg-slate-950 border border-slate-800 rounded-2xl p-4">
+              <div>
+                <label className="block text-xs text-slate-400 mb-1.5">Playtomic rating</label>
+                <input
+                  type="number"
+                  min="0.1"
+                  max="7"
+                  step="0.01"
+                  value={playtomicRating}
+                  onChange={(e) => setPlaytomicRating(e.target.value)}
+                  placeholder="2.55"
+                  required
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl p-3 text-sm outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs text-slate-400 mb-1.5">Playtomic profile / username (optional)</label>
+                <input
+                  value={playtomicProfile}
+                  onChange={(e) => setPlaytomicProfile(e.target.value)}
+                  placeholder="Paste profile URL or username"
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl p-3 text-sm outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-xl p-3">
+                Your level will be marked <strong>Pending Verification</strong> until Boston Padel confirms the Playtomic rating.
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3 bg-slate-950 border border-slate-800 rounded-2xl p-4">
+              <p className="text-xs font-bold text-white">Quick level assessment</p>
+
+              <div>
+                <label className="block text-[11px] text-slate-400 mb-1">How long have you played padel?</label>
+                <select
+                  value={monthsPlaying}
+                  onChange={(e) => setMonthsPlaying(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl p-2.5 text-xs"
+                >
+                  <option value="0-3">0–3 months</option>
+                  <option value="4-12">4–12 months</option>
+                  <option value="13-24">1–2 years</option>
+                  <option value="25+">2+ years</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] text-slate-400 mb-1">How often do you play?</label>
+                <select
+                  value={weeklyFrequency}
+                  onChange={(e) => setWeeklyFrequency(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl p-2.5 text-xs"
+                >
+                  <option value="1">About once a week or less</option>
+                  <option value="2">About twice a week</option>
+                  <option value="3+">3+ times a week</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] text-slate-400 mb-1">Tennis / squash / other racket background?</label>
+                <select
+                  value={racketBackground}
+                  onChange={(e) => setRacketBackground(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl p-2.5 text-xs"
+                >
+                  <option value="none">None</option>
+                  <option value="casual">Casual / recreational</option>
+                  <option value="competitive">Competitive background</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] text-slate-400 mb-1">Competitive padel experience?</label>
+                <select
+                  value={competitionExperience}
+                  onChange={(e) => setCompetitionExperience(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl p-2.5 text-xs"
+                >
+                  <option value="none">None</option>
+                  <option value="local">Local tournaments / organized play</option>
+                  <option value="league">League or regular competitive play</option>
+                </select>
+              </div>
+
+              <div className="flex items-center justify-between bg-slate-900 border border-slate-800 rounded-xl p-3">
+                <div>
+                  <p className="text-[10px] text-slate-500 uppercase tracking-wide font-black">Provisional starting rating</p>
+                  <p className="text-[11px] text-slate-400 mt-1">Your rating is provisional. Boston Padel will calibrate it after your first matches.</p>
+                </div>
+                <span className="text-xl font-black text-emerald-400">{provisionalPreview.toFixed(2)}</span>
+              </div>
+            </div>
+          )}
 
           {errorMsg && (
             <div className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-xl p-3">
@@ -280,6 +478,23 @@ function ProfileSetup({ session, onCreated }) {
   );
 }
 
+function ratingStatusLabel(player) {
+  if (player?.rating_status === 'verified_playtomic') return 'Playtomic Verified';
+  if (player?.rating_status === 'verified_boston') return 'Boston Verified';
+  if (player?.rating_status === 'pending_verification') return 'Pending Verification';
+  return 'Provisional';
+}
+
+function ratingStatusClass(player) {
+  if (player?.rating_status === 'verified_playtomic' || player?.rating_status === 'verified_boston') {
+    return 'text-emerald-300 bg-emerald-500/10 border-emerald-500/30';
+  }
+  if (player?.rating_status === 'pending_verification') {
+    return 'text-amber-300 bg-amber-500/10 border-amber-500/30';
+  }
+  return 'text-sky-300 bg-sky-500/10 border-sky-500/30';
+}
+
 export default function App() {
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -293,6 +508,10 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('feed');
   const [toastMsg, setToastMsg] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [feedbackMatches, setFeedbackMatches] = useState([]);
+  const [feedbackMatch, setFeedbackMatch] = useState(null);
+  const [feedbackSelections, setFeedbackSelections] = useState({});
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
 
   const [preferredClubs, setPreferredClubs] = useState(['padelhub', 'sensa', 'dedham']);
   const [selectedSlots, setSelectedSlots] = useState(['morning', 'evening']);
@@ -328,6 +547,27 @@ export default function App() {
     };
   }, []);
 
+  const refreshPlayer = async () => {
+    if (!session?.user?.id) {
+      setPlayer(null);
+      return null;
+    }
+
+    const { data, error } = await supabase
+      .from('players')
+      .select('*')
+      .eq('user_id', session.user.id)
+      .maybeSingle();
+
+    if (error) {
+      console.error('Profile load error:', error);
+      return null;
+    }
+
+    setPlayer(data ?? null);
+    return data ?? null;
+  };
+
   useEffect(() => {
     const loadProfile = async () => {
       if (!session?.user?.id) {
@@ -336,18 +576,7 @@ export default function App() {
       }
 
       setProfileLoading(true);
-
-      const { data, error } = await supabase
-        .from('players')
-        .select('*')
-        .eq('user_id', session.user.id)
-        .maybeSingle();
-
-      if (error) {
-        console.error('Profile load error:', error);
-      }
-
-      setPlayer(data ?? null);
+      await refreshPlayer();
       setProfileLoading(false);
     };
 
@@ -355,6 +584,9 @@ export default function App() {
   }, [session?.user?.id]);
 
   const fetchMatches = async () => {
+    const { error: cleanupError } = await supabase.rpc('cleanup_stale_matches');
+    if (cleanupError) console.error('Stale match cleanup error:', cleanupError);
+
     const { data, error } = await supabase
       .from('matches')
       .select('*')
@@ -369,6 +601,72 @@ export default function App() {
     setMatches((data ?? []).map((m) => ({ ...m, players: normalizePlayers(m.players) })));
   };
 
+  const fetchFeedbackMatches = async () => {
+    if (!player?.id) {
+      setFeedbackMatches([]);
+      return;
+    }
+
+    const { data: memberships, error: membershipError } = await supabase
+      .from('match_players')
+      .select('match_id')
+      .eq('player_id', player.id)
+      .in('status', ['joined', 'confirmed']);
+
+    if (membershipError) {
+      console.error('Feedback membership load error:', membershipError);
+      return;
+    }
+
+    const matchIds = [...new Set((memberships ?? []).map((row) => row.match_id).filter(Boolean))];
+
+    if (!matchIds.length) {
+      setFeedbackMatches([]);
+      return;
+    }
+
+    const [{ data: completed, error: completedError }, { data: reviewedRows, error: reviewedError }] =
+      await Promise.all([
+        supabase
+          .from('matches')
+          .select('*')
+          .in('id', matchIds)
+          .eq('status', 'completed')
+          .order('completed_at', { ascending: false }),
+        supabase
+          .from('match_feedback')
+          .select('match_id, reviewed_player_id')
+          .eq('reviewer_player_id', player.id)
+          .in('match_id', matchIds),
+      ]);
+
+    if (completedError || reviewedError) {
+      console.error('Feedback queue load error:', completedError || reviewedError);
+      return;
+    }
+
+    const reviewedKeys = new Set(
+      (reviewedRows ?? []).map((row) => `${row.match_id}:${row.reviewed_player_id}`)
+    );
+
+    const queue = (completed ?? [])
+      .map((match) => {
+        const matchPlayers = normalizePlayers(match.players);
+        const pendingPlayers = matchPlayers.filter(
+          (p) => p.id && p.id !== player.id && !reviewedKeys.has(`${match.id}:${p.id}`)
+        );
+
+        return {
+          ...match,
+          players: matchPlayers,
+          pendingPlayers,
+        };
+      })
+      .filter((match) => match.pendingPlayers.length > 0);
+
+    setFeedbackMatches(queue);
+  };
+
   useEffect(() => {
     if (!session || !player) return;
 
@@ -379,7 +677,10 @@ export default function App() {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'matches' },
-        () => fetchMatches()
+        () => {
+          fetchMatches();
+          fetchFeedbackMatches();
+        }
       )
       .subscribe();
 
@@ -387,6 +688,11 @@ export default function App() {
       supabase.removeChannel(channel);
     };
   }, [session, player?.id]);
+
+  useEffect(() => {
+    if (!player?.id) return;
+    fetchFeedbackMatches();
+  }, [player?.id]);
 
   useEffect(() => {
     const loadPreferences = async () => {
@@ -544,118 +850,125 @@ export default function App() {
     e.preventDefault();
     if (!selectedMatch || !player?.id) return;
 
-    const existingPlayers = normalizePlayers(selectedMatch.players);
-
-    if (existingPlayers.some((p) => p.id === player.id)) {
-      setSelectedMatch(null);
-      showToast('You already joined this match.');
-      return;
-    }
-
-    if (existingPlayers.length >= 4) {
-      setSelectedMatch(null);
-      showToast('This match is already full.');
-      return;
-    }
-
-    const nextPlayers = [
-      ...existingPlayers,
-      {
-        id: player.id,
-        name: player.name,
-        phone: player.phone,
-        rating: Number(player.rating),
-      },
-    ];
-
-    const nextCount = nextPlayers.length;
-    const nextStatus = nextCount >= 4 ? 'full' : 'open';
-
-    const { data: updatedMatch, error } = await supabase
-      .from('matches')
-      .update({
-        players: nextPlayers,
-        spotsFilled: nextCount,
-        status: nextStatus,
-      })
-      .eq('id', selectedMatch.id)
-      .select()
-      .single();
+    const { data, error } = await supabase.rpc('join_match_atomic', {
+      p_match_id: selectedMatch.id,
+    });
 
     if (error) {
-      console.error(error);
-      showToast('Could not join match.');
+      console.error('Atomic join error:', error);
+      showToast(error.message || 'Could not join match.');
       return;
     }
-
-    const { error: membershipError } = await supabase
-      .from('match_players')
-      .upsert(
-        {
-          match_id: selectedMatch.id,
-          player_id: player.id,
-          role: 'player',
-          status: 'joined',
-          left_at: null,
-        },
-        { onConflict: 'match_id,player_id' }
-      );
-
-    if (membershipError) console.error('Membership error:', membershipError);
 
     setSelectedMatch(null);
 
-    if (nextCount === 4) {
-      setConfirmedMatch({ ...updatedMatch, players: nextPlayers });
+    const updatedMatch = data?.match ?? null;
+    const nextCount = Number(data?.spots_filled ?? 0);
+
+    if (nextCount >= 4 && updatedMatch) {
+      setConfirmedMatch({
+        ...updatedMatch,
+        players: normalizePlayers(updatedMatch.players),
+      });
     } else {
       showToast('Successfully joined the match!');
     }
 
-    fetchMatches();
+    await fetchMatches();
+  };
+
+  const handleMarkPlayed = async (match) => {
+    if (!player?.id || match.host_player_id !== player.id) return;
+
+    const matchPlayers = normalizePlayers(match.players);
+    if (matchPlayers.length < 2) {
+      showToast('At least 2 players are required to mark a match as played.');
+      return;
+    }
+
+    const { error } = await supabase
+      .from('matches')
+      .update({
+        status: 'completed',
+        completed_at: new Date().toISOString(),
+      })
+      .eq('id', match.id)
+      .eq('host_player_id', player.id);
+
+    if (error) {
+      console.error('Mark played error:', error);
+      showToast('Could not mark match as played.');
+      return;
+    }
+
+    showToast('Match marked as played. Feedback is now open.');
+    await Promise.all([fetchMatches(), fetchFeedbackMatches()]);
+  };
+
+  const openFeedback = (match) => {
+    setFeedbackMatch(match);
+    setFeedbackSelections({});
+  };
+
+  const handleSubmitFeedback = async () => {
+    if (!feedbackMatch || !player?.id) return;
+
+    const opponents = feedbackMatch.pendingPlayers ?? [];
+    const missing = opponents.find((opponent) => feedbackSelections[opponent.id] === undefined);
+
+    if (missing) {
+      showToast('Rate every player before submitting.');
+      return;
+    }
+
+    setFeedbackSubmitting(true);
+
+    const results = await Promise.all(
+      opponents.map((opponent) =>
+        supabase.rpc('submit_match_feedback', {
+          p_match_id: feedbackMatch.id,
+          p_reviewed_player_id: opponent.id,
+          p_skill_fit: feedbackSelections[opponent.id],
+        })
+      )
+    );
+
+    setFeedbackSubmitting(false);
+
+    const failed = results.find((result) => result.error);
+    if (failed) {
+      console.error('Feedback submit error:', failed.error);
+      showToast(failed.error.message || 'Could not submit feedback.');
+      return;
+    }
+
+    setFeedbackMatch(null);
+    setFeedbackSelections({});
+    await refreshPlayer();
+    await fetchFeedbackMatches();
+    showToast('Feedback submitted. Boston Ratings recalculated.');
   };
 
   const handleLeaveMatch = async (match) => {
     if (!player?.id) return;
 
-    const currentPlayers = normalizePlayers(match.players);
-    const isHost = match.host_player_id === player.id;
-
-    if (isHost && currentPlayers.length > 1) {
-      showToast('Host cannot leave while other players are joined.');
-      return;
-    }
-
-    const nextPlayers = currentPlayers.filter((p) => p.id !== player.id);
-    const nextCount = nextPlayers.length;
-
-    const { error } = await supabase
-      .from('matches')
-      .update({
-        players: nextPlayers,
-        spotsFilled: nextCount,
-        status: nextCount >= 4 ? 'full' : 'open',
-      })
-      .eq('id', match.id);
+    const { data, error } = await supabase.rpc('leave_match_atomic', {
+      p_match_id: match.id,
+    });
 
     if (error) {
-      console.error(error);
-      showToast('Could not leave match.');
+      console.error('Atomic leave error:', error);
+      showToast(error.message || 'Could not leave match.');
       return;
     }
 
-    const { error: membershipError } = await supabase
-      .from('match_players')
-      .update({
-        status: 'left',
-        left_at: new Date().toISOString(),
-      })
-      .eq('match_id', match.id)
-      .eq('player_id', player.id);
+    if (data?.deleted) {
+      showToast('You left. The empty match was removed.');
+    } else {
+      showToast('You left the match.');
+    }
 
-    if (membershipError) console.error('Membership leave error:', membershipError);
-
-    showToast('You left the match.');
-    fetchMatches();
+    await fetchMatches();
   };
 
   const handleSignOut = async () => {
@@ -708,6 +1021,9 @@ export default function App() {
             <span className="text-[11px] font-bold text-slate-200">{player.name.split(' ')[0]}</span>
             <span className="text-[10px] text-emerald-400 font-bold bg-emerald-500/10 px-1.5 py-0.5 rounded">
               {Number(player.rating).toFixed(2)}
+            </span>
+            <span className={`hidden sm:inline text-[9px] font-black px-1.5 py-0.5 rounded border ${ratingStatusClass(player)}`}>
+              {ratingStatusLabel(player)}
             </span>
           </div>
           <button
@@ -854,13 +1170,23 @@ export default function App() {
                       </div>
 
                       {hasJoined ? (
-                        <button
-                          onClick={() => handleLeaveMatch(match)}
-                          className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-slate-800 text-slate-300 flex items-center gap-1"
-                        >
-                          <LogOut size={13} />
-                          Leave
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          {match.host_player_id === player.id && players.length >= 2 && (
+                            <button
+                              onClick={() => handleMarkPlayed(match)}
+                              className="px-3 py-1.5 rounded-xl text-[11px] font-black bg-emerald-500/10 border border-emerald-500/30 text-emerald-300"
+                            >
+                              Mark Played
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleLeaveMatch(match)}
+                            className="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-800 text-slate-300 flex items-center gap-1"
+                          >
+                            <LogOut size={13} />
+                            Leave
+                          </button>
+                        </div>
                       ) : isFull ? (
                         <button disabled className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-slate-800 text-slate-500">
                           Match Full
@@ -888,11 +1214,81 @@ export default function App() {
                 <h2 className="text-sm font-bold text-white">Your Player Identity</h2>
                 <p className="text-xs text-slate-400 mt-1">{player.name} • {player.phone}</p>
               </div>
-              <span className="text-xs font-black text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-lg">
-                {Number(player.rating).toFixed(2)}
-              </span>
+              <div className="text-right">
+                <span className="text-xs font-black text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-lg inline-block">
+                  {Number(player.rating).toFixed(2)}
+                </span>
+                <div className={`mt-1 text-[9px] font-black px-2 py-1 rounded-lg border ${ratingStatusClass(player)}`}>
+                  {ratingStatusLabel(player)}
+                </div>
+              </div>
             </div>
           </div>
+
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-bold text-white">Rating Calibration</h2>
+                <p className="text-xs text-slate-400 mt-1">
+                  Your rating is calibrated from completed matches and private player feedback.
+                </p>
+              </div>
+              <span className="text-xs font-black text-emerald-400">
+                {Math.min(Number(player.calibration_matches ?? 0), 5)}/5
+              </span>
+            </div>
+
+            <div className="h-2 bg-slate-950 rounded-full overflow-hidden border border-slate-800">
+              <div
+                className="h-full bg-emerald-500 transition-all"
+                style={{ width: `${Math.min(100, (Number(player.calibration_matches ?? 0) / 5) * 100)}%` }}
+              />
+            </div>
+
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="text-slate-500">
+                Confidence: {Math.round(Number(player.rating_confidence ?? 0.25) * 100)}%
+              </span>
+              <span className={`font-black px-2 py-1 rounded-lg border ${ratingStatusClass(player)}`}>
+                {ratingStatusLabel(player)}
+              </span>
+            </div>
+
+            <p className="text-[11px] text-slate-500">
+              After 5 calibration matches, eligible provisional players become Boston Verified automatically.
+            </p>
+          </div>
+
+          {feedbackMatches.length > 0 && (
+            <div className="bg-amber-500/5 border border-amber-500/20 rounded-2xl p-4 space-y-3">
+              <div>
+                <h2 className="text-sm font-bold text-white">Feedback needed</h2>
+                <p className="text-xs text-slate-400 mt-1">
+                  Rate skill fit only — not personality or whether you won the match.
+                </p>
+              </div>
+
+              {feedbackMatches.map((match) => (
+                <div
+                  key={`feedback-${match.id}`}
+                  className="bg-slate-950 border border-slate-800 rounded-xl p-3 flex items-center justify-between gap-3"
+                >
+                  <div>
+                    <p className="text-xs font-bold text-slate-200">{match.clubName}</p>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      {match.date} • {match.pendingPlayers.length} player{match.pendingPlayers.length === 1 ? '' : 's'} to rate
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => openFeedback(match)}
+                    className="px-3 py-2 rounded-lg bg-amber-400 text-slate-950 text-[11px] font-black"
+                  >
+                    Give Feedback
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
 
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
             <h2 className="text-sm font-bold text-white">Preferred Clubs</h2>
@@ -1033,6 +1429,81 @@ export default function App() {
               className="w-full py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-xl"
             >
               Done
+            </button>
+          </div>
+        </div>
+      )}
+
+      {feedbackMatch && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md flex items-end sm:items-center justify-center p-4 z-[60]">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-sm p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-base font-black text-white">Post-match calibration</h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  Was each player's level below, on level, or above this match?
+                </p>
+              </div>
+              <button
+                onClick={() => setFeedbackMatch(null)}
+                className="text-slate-400 hover:text-white"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="text-[11px] text-slate-400 bg-slate-950 border border-slate-800 rounded-xl p-3">
+              Feedback is private. Boston Padel combines multiple players' opinions and completed matches; one review cannot verify or drastically change a rating.
+            </div>
+
+            <div className="space-y-3">
+              {(feedbackMatch.pendingPlayers ?? []).map((opponent) => (
+                <div key={opponent.id} className="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-200">{opponent.name}</span>
+                    <span className="text-[10px] text-slate-500">
+                      Current {Number(opponent.rating ?? 0).toFixed(2)}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {[
+                      { value: -1, label: 'Below' },
+                      { value: 0, label: 'On level' },
+                      { value: 1, label: 'Above' },
+                    ].map((choice) => {
+                      const active = feedbackSelections[opponent.id] === choice.value;
+                      return (
+                        <button
+                          key={`${opponent.id}-${choice.value}`}
+                          type="button"
+                          onClick={() =>
+                            setFeedbackSelections((current) => ({
+                              ...current,
+                              [opponent.id]: choice.value,
+                            }))
+                          }
+                          className={`py-2 rounded-lg border text-[10px] font-black ${
+                            active
+                              ? 'bg-emerald-500 text-slate-950 border-emerald-400'
+                              : 'bg-slate-900 border-slate-800 text-slate-400'
+                          }`}
+                        >
+                          {choice.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <button
+              onClick={handleSubmitFeedback}
+              disabled={feedbackSubmitting}
+              className="w-full py-3 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 font-black text-xs rounded-xl"
+            >
+              {feedbackSubmitting ? 'Submitting…' : 'Submit Private Feedback'}
             </button>
           </div>
         </div>
